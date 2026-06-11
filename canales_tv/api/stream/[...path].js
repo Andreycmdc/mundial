@@ -12,17 +12,21 @@ export default async function handler(req, res) {
         return res.status(200).end();
     }
     
-    // Determinar la URL de destino
     let url;
     let refererChannel = 'espn';
     
+    // Si es /api/channels
     if (path && path[0] === 'channels') {
         url = `${API_BASE}/api/channels`;
-    } else if (path && path[0]) {
+    }
+    // Si es /api/stream/espn
+    else if (path && path[0]) {
         refererChannel = path[0];
         const target = req.query.target || 1;
         url = `${API_BASE}/api/stream/${path[0]}?target=${target}`;
-    } else {
+    }
+    // Por defecto
+    else {
         url = `${API_BASE}/api/channels`;
     }
     
@@ -32,8 +36,6 @@ export default async function handler(req, res) {
                 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
                 'Referer': `${API_BASE}/ver/${refererChannel}`,
                 'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Connection': 'keep-alive',
             }
         });
         
