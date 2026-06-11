@@ -1,9 +1,0 @@
-{
-  "name": "sportstream-live",
-  "version": "2.0.0",
-  "description": "Canales deportivos en vivo — premium redesign",
-  "scripts": {
-    "dev": "vercel dev",
-    "deploy": "vercel --prod"
-  }
-}

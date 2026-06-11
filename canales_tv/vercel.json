@@ -1,7 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/channels", "destination": "/api/stream/[...path]" },
-    { "source": "/api/stream/:channel", "destination": "/api/stream/[...path]" },
+    { "source": "/api/(.*)", "destination": "/api/stream.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
