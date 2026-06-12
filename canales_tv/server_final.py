@@ -8,7 +8,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import json
 import urllib.parse
-
+import ios 
 # Configuración
 API_BASE = "https://www.noveopartidos.xyz"
 HEADERS = {
@@ -576,11 +576,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-print("="*60)
-print("🎥 SERVIDOR FINAL - TODOS LOS CANALES")
-print("="*60)
-print("📺 http://localhost:8888")
-print("🚀 Proxy activo - Carga dinámica de canales")
-print("="*60)
-
-HTTPServer(('0.0.0.0', 8888), ProxyHandler).serve_forever()
+port = int(os.environ.get('PORT', 8888))
+print(f"🎥 Servidor iniciado en puerto {port}")
+HTTPServer(('0.0.0.0', port), ProxyHandler).serve_forever()
