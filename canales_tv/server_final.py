@@ -1,168 +1,92 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 """
-Servidor de Canales Deportivos - CON BYPASS DE CLOUDFLARE
+Servidor de Canales Deportivos
+Con todos los canales desde la API real
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import json
-import os
-import time
-import random
+import urllib.parse
 
 # Configuración
 API_BASE = "https://www.noveopartidos.xyz"
-
-# Múltiples User-Agents para rotar
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0',
-]
-
-# Datos de respaldo (canales principales)
-BACKUP_CHANNELS = [
-    {"id":"espn","name":"ESPN","country":"us","worldcup":True},
-    {"id":"espn2","name":"ESPN 2","country":"us","worldcup":True},
-    {"id":"espn3","name":"ESPN 3","country":"us","worldcup":True},
-    {"id":"foxsports","name":"Fox Sports","country":"us","worldcup":True},
-    {"id":"foxsports2","name":"Fox Sports 2","country":"us","worldcup":True},
-    {"id":"tntsportsar","name":"TNT Sports Argentina","country":"ar","worldcup":True},
-    {"id":"tycsports","name":"TyC Sports","country":"ar","worldcup":True},
-    {"id":"espnmexico","name":"ESPN Mexico","country":"mx","worldcup":True},
-    {"id":"foxsportsmexico","name":"Fox Sports Mexico","country":"mx","worldcup":True},
-]
-
-def get_headers(referer=None):
-    headers = {
-        'User-Agent': random.choice(USER_AGENTS),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Cache-Control': 'max-age=0',
-    }
-    if referer:
-        headers['Referer'] = referer
-    return headers
-
-def fetch_with_retry(url, headers, max_retries=3):
-    for i in range(max_retries):
-        try:
-            resp = requests.get(url, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                # Verificar que no sea página de Cloudflare
-                if 'Just a moment' in resp.text or 'cf-challenge' in resp.text:
-                    print(f"   ⚠️ Cloudflare detectado, reintento {i+1}/{max_retries}")
-                    time.sleep(2)
-                    continue
-                return resp
-            elif resp.status_code == 403:
-                print(f"   ⚠️ 403 detectado, reintento {i+1}/{max_retries}")
-                time.sleep(2)
-                continue
-        except Exception as e:
-            print(f"   ❌ Error: {e}, reintento {i+1}/{max_retries}")
-            time.sleep(2)
-    return None
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
+    'Accept': '*/*',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Connection': 'keep-alive',
+}
 
 class ProxyHandler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         print(f"📡 {self.path[:80]}")
         
+        # Servir el HTML
         if self.path == '/' or self.path == '/index.html':
             self.serve_html()
             return
         
-        # API Canales con bypass
+        # API: Lista de canales (desde la API real)
         if self.path == '/api/channels':
             try:
-                headers = get_headers(f'{API_BASE}/')
-                resp = fetch_with_retry(f'{API_BASE}/api/channels', headers)
-                
-                if resp and resp.status_code == 200:
-                    # Verificar que es JSON válido
-                    try:
-                        json.loads(resp.text)
-                        self.send_response(200)
-                        self.send_header('Content-Type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.end_headers()
-                        self.wfile.write(resp.content)
-                        print(f"   ✅ Canales: {len(resp.content)} bytes")
-                        return
-                    except:
-                        print(f"   ⚠️ JSON inválido, usando backup")
-                else:
-                    print(f"   ⚠️ Fallo en API, usando backup")
-                    
-                # Fallback a datos locales
+                headers = HEADERS.copy()
+                headers['Referer'] = f'{API_BASE}/'
+                resp = requests.get(f'{API_BASE}/api/channels', headers=headers, timeout=10)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps(BACKUP_CHANNELS).encode())
-                print(f"   ✅ Usando backup: {len(BACKUP_CHANNELS)} canales")
-                
-            except Exception as e:
-                print(f"   ❌ Error: {e}, usando backup")
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps(BACKUP_CHANNELS).encode())
-            return
-        
-        # API Stream
-        if self.path.startswith('/api/stream/'):
-            channel = self.path.split('/')[-1].split('?')[0]
-            print(f"🎬 Stream: {channel}")
-            
-            try:
-                headers = get_headers(f'{API_BASE}/ver/{channel}')
-                resp = fetch_with_retry(f'{API_BASE}/api/stream/{channel}?target=1', headers)
-                
-                if resp and resp.status_code == 200:
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/vnd.apple.mpegurl')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(resp.content)
-                    print(f"   ✅ .m3u8 enviado")
-                else:
-                    self.send_response(503)
-                    self.end_headers()
+                self.wfile.write(resp.content)
+                print(f"   ✅ Canales: {len(resp.content)} bytes")
             except Exception as e:
                 print(f"   ❌ Error: {e}")
                 self.send_response(500)
                 self.end_headers()
             return
         
-        # Proxy segmentos
-        if self.path.startswith('/api/segment'):
+        # API: Stream (devuelve .m3u8)
+        if self.path.startswith('/api/stream/'):
+            channel = self.path.split('/')[-1].split('?')[0]
+            print(f"🎬 Stream solicitado: {channel}")
+            
             try:
-                headers = get_headers(f'{API_BASE}/ver/espn')
-                full_url = f'{API_BASE}{self.path}'
-                resp = fetch_with_retry(full_url, headers)
+                headers = HEADERS.copy()
+                headers['Referer'] = f'{API_BASE}/ver/{channel}'
                 
-                if resp and resp.status_code == 200:
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'video/mp2t')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(resp.content)
-                    print(f"   ✅ Segmento: {len(resp.content)} bytes")
-                else:
-                    self.send_response(503)
-                    self.end_headers()
+                resp = requests.get(f'{API_BASE}/api/stream/{channel}?target=1', 
+                                   headers=headers, timeout=10)
+                
+                self.send_response(resp.status_code)
+                self.send_header('Content-Type', 'application/vnd.apple.mpegurl')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp.content)
+                print(f"   ✅ .m3u8 enviado")
             except Exception as e:
                 print(f"   ❌ Error: {e}")
+                self.send_response(500)
+                self.end_headers()
+            return
+        
+        # Proxy para segmentos de video
+        if self.path.startswith('/api/segment'):
+            try:
+                headers = HEADERS.copy()
+                headers['Referer'] = f'{API_BASE}/ver/espn'
+                
+                full_url = f'{API_BASE}{self.path}'
+                resp = requests.get(full_url, headers=headers, timeout=15)
+                
+                self.send_response(resp.status_code)
+                self.send_header('Content-Type', 'video/mp2t')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(resp.content)
+                print(f"   ✅ Segmento: {len(resp.content)} bytes")
+            except Exception as e:
+                print(f"   ❌ Error segmento: {e}")
                 self.send_response(500)
                 self.end_headers()
             return
@@ -175,75 +99,473 @@ class ProxyHandler(BaseHTTPRequestHandler):
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Canales Deportivos EN VIVO</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Canales Deportivos EN VIVO - Mundial 2026</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;}
-        body{background:#0a0a0a;font-family:Arial;color:#fff;}
-        .header{background:#1a1a2e;padding:20px;text-align:center;border-bottom:3px solid #e50914;}
-        h1{font-size:1.5rem;}
-        span{color:#e50914;}
-        .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;padding:20px;}
-        .card{background:#1a1a1a;border-radius:12px;padding:15px;text-align:center;cursor:pointer;border:1px solid #333;}
-        .card:hover{transform:scale(1.02);border-color:#e50914;}
-        .logo{width:65px;height:65px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:bold;}
-        .player{position:fixed;bottom:0;left:0;right:0;background:#000;z-index:20;display:none;flex-direction:column;border-top:2px solid #e50914;}
-        .player.active{display:flex;}
-        .player-bar{display:flex;justify-content:space-between;padding:10px;background:#111;}
-        .player-bar button{background:#e50914;border:none;color:#fff;padding:5px 15px;border-radius:20px;cursor:pointer;}
-        video{width:100%;max-height:50vh;}
-        .status{position:fixed;bottom:10px;right:10px;background:#000;color:#0f0;font-size:10px;padding:5px;border-radius:5px;}
-        .live{color:#e50914;font-size:10px;margin-top:5px;display:inline-block;}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 3px solid #e50914;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header h1 {
+            font-size: 1.8rem;
+        }
+        
+        .header h1 span {
+            color: #e50914;
+        }
+        
+        .header p {
+            color: #888;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        /* Buscador */
+        .search-box {
+            max-width: 400px;
+            margin: 15px auto 0;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 30px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+            text-align: center;
+        }
+        
+        .search-box input::placeholder {
+            color: #aaa;
+        }
+        
+        /* Filtros */
+        .filters {
+            display: flex;
+            gap: 8px;
+            padding: 12px 20px;
+            overflow-x: auto;
+            background: #0f0f0f;
+            border-bottom: 1px solid #222;
+            position: sticky;
+            top: 120px;
+            z-index: 99;
+        }
+        
+        .filter-btn {
+            padding: 8px 18px;
+            border-radius: 30px;
+            border: none;
+            background: #1f1f1f;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+            transition: 0.3s;
+        }
+        
+        .filter-btn:hover {
+            background: #333;
+        }
+        
+        .filter-btn.active {
+            background: #e50914;
+            color: #fff;
+        }
+        
+        /* Grid de canales */
+        .channel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 16px;
+            padding: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .channel-card {
+            background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+            border-radius: 12px;
+            padding: 20px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid #2a2a2a;
+        }
+        
+        .channel-card:hover {
+            transform: translateY(-5px);
+            border-color: #e50914;
+            box-shadow: 0 10px 25px rgba(229, 9, 20, 0.2);
+        }
+        
+        .channel-logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 12px;
+        }
+        
+        .channel-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            margin: 0 auto;
+        }
+        
+        .channel-name {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .channel-country {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        
+        .live-badge {
+            background: #e50914;
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            display: inline-block;
+            margin-top: 8px;
+        }
+        
+        /* Reproductor flotante */
+        .player-overlay {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 450px;
+            max-width: calc(100vw - 40px);
+            background: #111;
+            border-radius: 16px;
+            border: 1px solid #333;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            backdrop-filter: blur(10px);
+        }
+        
+        .player-overlay.active {
+            display: flex;
+        }
+        
+        .player-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: #1a1a1a;
+            border-radius: 16px 16px 0 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .player-header h4 {
+            font-size: 14px;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .close-player {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 8px;
+        }
+        
+        .close-player:hover {
+            color: #e50914;
+        }
+        
+        .video-wrapper {
+            background: #000;
+            border-radius: 0 0 16px 16px;
+            overflow: hidden;
+        }
+        
+        video {
+            width: 100%;
+            display: block;
+            max-height: 280px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        
+        .status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: #0f0;
+            font-size: 11px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            z-index: 1001;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .channel-grid {
+                grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+                gap: 12px;
+                padding: 16px;
+            }
+            .channel-icon {
+                width: 60px;
+                height: 60px;
+                font-size: 22px;
+            }
+            .channel-name {
+                font-size: 12px;
+            }
+            .player-overlay {
+                width: 100%;
+                bottom: 0;
+                right: 0;
+                border-radius: 16px 16px 0 0;
+            }
+        }
     </style>
 </head>
 <body>
-<div class="header"><h1><span>🎥</span> Canales Deportivos <span>EN VIVO</span></h1></div>
-<div class="grid" id="grid"><div class="loading" style="text-align:center;padding:40px">📡 Cargando canales...</div></div>
-<div class="player" id="player">
-    <div class="player-bar"><span id="playerTitle">Cargando...</span><button id="closeBtn">CERRAR</button></div>
-    <video id="video" controls autoplay></video>
-</div>
-<div class="status" id="status">⚡ Listo</div>
-<script>
-let canales=[],hls=null;
-async function cargarCanales(){
-    try{
-        const r=await fetch('/api/channels');
-        canales=await r.json();
-        const grid=document.getElementById('grid');
-        const colores=['#e50914','#00a650','#004A98','#ff8c00','#9b59b6','#3498db'];
-        grid.innerHTML=canales.map((c,i)=>`
-            <div class="card" onclick="reproducir('${c.id}')">
-                <div class="logo" style="background:${colores[i%colores.length]}">${c.name.slice(0,2)}</div>
-                <div class="name">${c.name}</div>
-                <div class="live">🔴 EN VIVO</div>
-            </div>
-        `).join('');
-        document.getElementById('status').innerHTML='✅ '+canales.length+' canales';
-    }catch(e){grid.innerHTML='<div style="text-align:center;padding:40px">❌ Error al cargar</div>';}
-}
-function reproducir(id){
-    const player=document.getElementById('player');
-    const video=document.getElementById('video');
-    if(hls)hls.destroy();
-    player.classList.add('active');
-    video.pause();
-    const url=`/api/stream/${id}?target=1`;
-    if(Hls.isSupported()){
-        hls=new Hls();
-        hls.loadSource(url);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED,()=>video.play());
-    }
-}
-document.getElementById('closeBtn').onclick=()=>{
-    document.getElementById('player').classList.remove('active');
-    if(hls)hls.destroy();
-    document.getElementById('video').pause();
-};
-cargarCanales();
-</script>
+    <div class="header">
+        <h1><span>🎥</span> Canales Deportivos <span>EN VIVO</span></h1>
+        <p>ESPN | Fox Sports | TNT Sports | TyC Sports | Mundial 2026</p>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="🔍 Buscar canal...">
+        </div>
+    </div>
+    
+    <div class="filters" id="filters">
+        <button class="filter-btn active" data-filter="all">📺 Todos</button>
+        <button class="filter-btn" data-filter="us">🇺🇸 USA</button>
+        <button class="filter-btn" data-filter="mx">🇲🇽 México</button>
+        <button class="filter-btn" data-filter="ar">🇦🇷 Argentina</button>
+        <button class="filter-btn" data-filter="cl">🇨🇱 Chile</button>
+        <button class="filter-btn" data-filter="pe">🇵🇪 Perú</button>
+        <button class="filter-btn" data-filter="es">🇪🇸 España</button>
+        <button class="filter-btn" data-filter="worldcup">🏆 Mundial 2026</button>
+    </div>
+    
+    <div class="channel-grid" id="channelGrid">
+        <div class="loading">📡 Cargando canales...</div>
+    </div>
+    
+    <div class="player-overlay" id="playerOverlay">
+        <div class="player-header">
+            <h4 id="playerTitle">Cargando stream...</h4>
+            <button class="close-player" id="closePlayer">✕</button>
+        </div>
+        <div class="video-wrapper">
+            <video id="videoPlayer" controls autoplay></video>
+        </div>
+    </div>
+    
+    <div class="status" id="status">🟢 Iniciado</div>
+
+    <script>
+        let channels = [];
+        let currentFilter = 'all';
+        let currentSearch = '';
+        let currentHls = null;
+        
+        const colors = ['#e50914', '#00a650', '#004A98', '#ff8c00', '#9b59b6', '#3498db', '#1abc9c', '#e67e22', '#2c3e50', '#f39c12'];
+        
+        function setStatus(msg) {
+            const statusEl = document.getElementById('status');
+            statusEl.innerHTML = msg;
+            console.log(msg);
+        }
+        
+        // Cargar canales desde la API
+        async function loadChannels() {
+            setStatus('📡 Cargando canales...');
+            try {
+                const response = await fetch('/api/channels');
+                channels = await response.json();
+                setStatus(`✅ ${channels.length} canales cargados`);
+                renderChannels();
+            } catch (error) {
+                setStatus(`❌ Error: ${error.message}`);
+                document.getElementById('channelGrid').innerHTML = `<div class="loading">❌ Error al cargar canales</div>`;
+            }
+        }
+        
+        // Renderizar canales
+        function renderChannels() {
+            let filtered = channels.filter(channel => {
+                if (currentFilter === 'worldcup') return channel.worldcup === true;
+                if (currentFilter !== 'all') return channel.country === currentFilter;
+                return true;
+            });
+            
+            if (currentSearch) {
+                filtered = filtered.filter(channel => 
+                    channel.name.toLowerCase().includes(currentSearch.toLowerCase())
+                );
+            }
+            
+            const grid = document.getElementById('channelGrid');
+            
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div class="loading">📺 No se encontraron canales</div>';
+                return;
+            }
+            
+            const countryFlags = {
+                'us': '🇺🇸', 'mx': '🇲🇽', 'ar': '🇦🇷', 'cl': '🇨🇱',
+                'pe': '🇵🇪', 'es': '🇪🇸', 'gb': '🇬🇧', 'ca': '🇨🇦'
+            };
+            
+            grid.innerHTML = filtered.map((channel, index) => {
+                const color = colors[Math.abs(channel.id.length % colors.length)];
+                return `
+                    <div class="channel-card" data-id="${channel.id}" data-name="${channel.name}">
+                        <div class="channel-logo">
+                            <div class="channel-icon" style="background:${color}">${channel.name.substring(0,2).toUpperCase()}</div>
+                        </div>
+                        <div class="channel-name">${channel.name} ${channel.worldcup ? '🏆' : ''}</div>
+                        <div class="channel-country">${countryFlags[channel.country] || '🌎'} ${channel.country?.toUpperCase() || ''}</div>
+                        <div class="live-badge">🔴 EN VIVO</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Agregar eventos
+            document.querySelectorAll('.channel-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    playChannel(card.dataset.id, card.dataset.name);
+                });
+            });
+        }
+        
+        // Reproducir canal
+        async function playChannel(channelId, channelName) {
+            const overlay = document.getElementById('playerOverlay');
+            const title = document.getElementById('playerTitle');
+            const video = document.getElementById('videoPlayer');
+            
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            
+            title.textContent = `${channelName} - Cargando...`;
+            overlay.classList.add('active');
+            video.pause();
+            video.src = '';
+            
+            setStatus(`🎬 ${channelName} - Solicitando stream...`);
+            
+            const streamUrl = `/api/stream/${channelId}?target=1`;
+            
+            if (Hls.isSupported()) {
+                currentHls = new Hls({
+                    manifestLoadingTimeOut: 30000,
+                    levelLoadingTimeOut: 30000,
+                    fragLoadingTimeOut: 30000,
+                });
+                currentHls.loadSource(streamUrl);
+                currentHls.attachMedia(video);
+                currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    title.textContent = `${channelName} - EN VIVO`;
+                    setStatus(`✅ ${channelName} - Reproduciendo`);
+                    video.play().catch(e => console.log('Autoplay:', e));
+                });
+                currentHls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        setStatus(`❌ ${channelName} - Error, reintentando...`);
+                        setTimeout(() => playChannel(channelId, channelName), 3000);
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = streamUrl;
+                video.addEventListener('loadedmetadata', () => {
+                    title.textContent = `${channelName} - EN VIVO`;
+                    setStatus(`✅ ${channelName} - Reproduciendo`);
+                    video.play();
+                });
+            } else {
+                setStatus(`❌ ${channelName} - HLS no soportado`);
+                title.textContent = `${channelName} - Error`;
+            }
+        }
+        
+        // Cerrar reproductor
+        document.getElementById('closePlayer').addEventListener('click', () => {
+            const overlay = document.getElementById('playerOverlay');
+            const video = document.getElementById('videoPlayer');
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            video.pause();
+            video.src = '';
+            overlay.classList.remove('active');
+            setStatus('🟢 Reproductor cerrado');
+        });
+        
+        // Búsqueda en vivo
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            currentSearch = e.target.value.toLowerCase();
+            renderChannels();
+        });
+        
+        // Filtros
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.dataset.filter;
+                renderChannels();
+            });
+        });
+        
+        // Iniciar
+        loadChannels();
+    </script>
 </body>
 </html>'''
         self.send_response(200)
@@ -254,13 +576,11 @@ cargarCanales();
     def log_message(self, *args):
         pass
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8888))
-    print("="*60)
-    print("🎥 SERVIDOR CON BYPASS DE CLOUDFLARE")
-    print("="*60)
-    print(f"📺 Puerto: {port}")
-    print(f"📡 User-Agents: {len(USER_AGENTS)} rotativos")
-    print(f"💾 Backup: {len(BACKUP_CHANNELS)} canales")
-    print("="*60)
-    HTTPServer(('0.0.0.0', port), ProxyHandler).serve_forever()
+print("="*60)
+print("🎥 SERVIDOR FINAL - TODOS LOS CANALES")
+print("="*60)
+print("📺 http://localhost:8888")
+print("🚀 Proxy activo - Carga dinámica de canales")
+print("="*60)
+
+HTTPServer(('0.0.0.0', 8888), ProxyHandler).serve_forever()
