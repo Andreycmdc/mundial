@@ -1,9 +1,10 @@
-// Misma lógica que server.py pero en JavaScript para Vercel
 const API_BASE = 'https://www.noveopartidos.xyz';
+
 const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
 };
 
@@ -11,10 +12,9 @@ export default async function handler(req, res) {
     const url = req.url;
     console.log(`📡 ${url}`);
     
-    // Configurar CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Referer');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Referer, User-Agent');
     
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -24,12 +24,22 @@ export default async function handler(req, res) {
     if (url === '/api/channels' || url === '/api/stream?channels') {
         try {
             const response = await fetch(`${API_BASE}/api/channels`, {
-                headers: {
-                    ...HEADERS,
-                    'Referer': `${API_BASE}/`
-                }
+                headers: { ...HEADERS, 'Referer': `${API_BASE}/` }
             });
             const data = await response.text();
+            
+            // Verificar si es HTML de Cloudflare
+            if (data.includes('Just a moment') || data.includes('<!DOCTYPE html>')) {
+                console.log('Cloudflare detectado, reintentando...');
+                await new Promise(r => setTimeout(r, 3000));
+                const retry = await fetch(`${API_BASE}/api/channels`, {
+                    headers: { ...HEADERS, 'Referer': `${API_BASE}/` }
+                });
+                const retryData = await retry.text();
+                res.setHeader('Content-Type', 'application/json');
+                return res.status(retry.status).send(retryData);
+            }
+            
             res.setHeader('Content-Type', 'application/json');
             return res.status(response.status).send(data);
         } catch (error) {
@@ -45,10 +55,7 @@ export default async function handler(req, res) {
             console.log(`🎬 Stream solicitado: ${channel}`);
             try {
                 const response = await fetch(`${API_BASE}/api/stream/${channel}?target=1`, {
-                    headers: {
-                        ...HEADERS,
-                        'Referer': `${API_BASE}/ver/${channel}`
-                    }
+                    headers: { ...HEADERS, 'Referer': `${API_BASE}/ver/${channel}` }
                 });
                 const data = await response.text();
                 res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
@@ -63,12 +70,8 @@ export default async function handler(req, res) {
     if (url.includes('/api/segment')) {
         try {
             const fullUrl = `${API_BASE}${url}`;
-            console.log(`📥 Proxy segmento: ${fullUrl}`);
             const response = await fetch(fullUrl, {
-                headers: {
-                    ...HEADERS,
-                    'Referer': `${API_BASE}/ver/espn`
-                }
+                headers: { ...HEADERS, 'Referer': `${API_BASE}/ver/espn` }
             });
             const buffer = await response.arrayBuffer();
             res.setHeader('Content-Type', 'video/mp2t');
@@ -82,8 +85,5 @@ export default async function handler(req, res) {
 }
 
 export const config = {
-    api: {
-        bodyParser: false,
-        responseLimit: false,
-    },
+    api: { bodyParser: false, responseLimit: false },
 };
