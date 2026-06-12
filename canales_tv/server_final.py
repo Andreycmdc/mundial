@@ -8,7 +8,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import json
 import urllib.parse
-import ios 
+import os 
+
 # Configuración
 API_BASE = "https://www.noveopartidos.xyz"
 HEADERS = {
